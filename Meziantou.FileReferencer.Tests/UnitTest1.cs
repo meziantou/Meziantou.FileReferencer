@@ -8,8 +8,8 @@ public class UnitTest1
 {
     [Theory]
     [InlineData("a.cs", "// reference:ref1.txt", "// endreference")]
-    [InlineData("a.cs", "// reference:ref1.txt", "// end")]
-    [InlineData("a.cs", "// ref:ref1.txt", "// reference")]
+    [InlineData("a.cs", "// reference:ref1.txt", "// endref")]
+    [InlineData("a.cs", "// ref:ref1.txt", "// endreference")]
     [InlineData("a.cs", "// ref:ref1.txt", "// endref")]
     [InlineData("a.js", "// ref:ref1.txt", "// endref")]
     [InlineData("a.js", "// ref:ref1.txt", "/* endref */")]
