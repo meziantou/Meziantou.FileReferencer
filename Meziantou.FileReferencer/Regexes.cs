@@ -5,7 +5,7 @@ static partial class Regexes
 {
     public const string IndentationGroupName = "indentation";
     public const string ReferenceGroupName = "reference";
-    private const string ReferenceSectionStart = "ref:(?<reference>.+?)";
+    private const string ReferenceSectionStart = "ref(erence)?:(?<reference>.+?)";
     private const string ReferenceSectionEnd = "endref(:(?<reference>.+))?";
     private const string IndentationRegex = "(?<indentation>\\s*)";
     private const string OptionsRegex = "(?<options>;(?<name>[^=;]+)=(?<value>[^;]*))*;?";

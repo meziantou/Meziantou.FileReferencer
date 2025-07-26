@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Meziantou.FileReferencer;
 
-var pathsArgument = new Argument<string[]>("--path")
+var pathsArgument = new Argument<string[]>("path")
 {
     Description = "The file or folder to update",
     Arity = ArgumentArity.OneOrMore,

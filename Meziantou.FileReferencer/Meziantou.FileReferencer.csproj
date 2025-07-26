@@ -8,6 +8,7 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <PackAsTool>true</PackAsTool>
     <RollForward>LatestMajor</RollForward>
+    <Version>1.0.1</Version>
   </PropertyGroup>
 
   <ItemGroup>
