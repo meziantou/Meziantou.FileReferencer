@@ -195,9 +195,44 @@ This configuration:
 - Uses GitHub tags as the data source to check for updates
 - Applies semantic versioning rules
 
-### Running in CI/CD
+### Running with Renovate postUpgradeTasks
 
-To automatically update referenced content after Renovate creates a pull request, add this tool to your CI workflow:
+The recommended approach is to use Renovate's [`postUpgradeTasks`](https://docs.renovatebot.com/configuration-options/#postupgradetasks) feature to automatically run the tool after updating references. This keeps all automation within Renovate's workflow:
+
+````json
+{
+  "extends": ["config:base"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": ["\\.(cs|js|ts|py|md|yml|yaml)$"],
+      "matchStrings": [
+        "ref:https://github\\.com/(?<depName>[^/]+/[^/]+)/blob/(?<currentValue>[^/]+)/"
+      ],
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver"
+    }
+  ],
+  "postUpgradeTasks": {
+    "commands": [
+      "dotnet tool install --global Meziantou.FileReferencer",
+      "Meziantou.FileReferencer ."
+    ],
+    "fileFilters": ["**/*"],
+    "executionMode": "update"
+  }
+}
+````
+
+This configuration:
+- Installs the tool when processing updates
+- Runs it to refresh referenced file content
+- Includes all updated files in the commit
+- Only executes during dependency updates (not on initial PR creation)
+
+### Alternative: Running in CI/CD
+
+Alternatively, you can run the tool in a separate CI workflow after Renovate creates a pull request:
 
 ````yaml
 name: Update File References
@@ -230,4 +265,4 @@ jobs:
           git push
 ````
 
-This ensures that whenever Renovate updates a version tag, the actual file content is automatically refreshed to match the new version.
+Both approaches ensure that whenever Renovate updates a version tag, the actual file content is automatically refreshed to match the new version.
