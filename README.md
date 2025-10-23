@@ -149,3 +149,120 @@ Used in: `.cs`
 ### Mixed Format Support
 
 For files without a specific extension or generic text files, the tool attempts to match any of the supported comment styles.
+
+## Integration with Renovate
+
+[Renovate](https://docs.renovatebot.com/) can automatically detect and update version tags in file references. Combined with this tool, you can keep your referenced files up-to-date with the latest versions.
+
+### How It Works
+
+1. Renovate detects version tags in your file references (e.g., `https://github.com/user/repo/blob/v1.2.3/file.txt`)
+2. When Renovate updates the version tag in a pull request, it creates a new commit
+3. Run `Meziantou.FileReferencer` in your CI/CD pipeline to automatically update the referenced content
+4. The tool downloads the new version and updates the content between the reference markers
+
+### Example Configuration
+
+Consider a file with a versioned reference:
+
+````csharp
+// ref:https://github.com/meziantou/SampleProject/blob/1.2.3/.editorconfig
+// endref
+````
+
+To enable Renovate to detect and update this reference, add a custom manager to your `renovate.json`:
+
+````json
+{
+  "extends": ["config:base"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": ["\\.(cs|js|ts|py|md|yml|yaml)$"],
+      "matchStrings": [
+        "ref:https://github\\.com/(?<depName>[^/]+/[^/]+)/blob/(?<currentValue>[^/]+)/"
+      ],
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver"
+    }
+  ]
+}
+````
+
+This configuration:
+- Searches for references matching the pattern in your source files
+- Extracts the repository name and version tag
+- Uses GitHub tags as the data source to check for updates
+- Applies semantic versioning rules
+
+### Running with Renovate postUpgradeTasks
+
+The recommended approach is to use Renovate's [`postUpgradeTasks`](https://docs.renovatebot.com/configuration-options/#postupgradetasks) feature to automatically run the tool after updating references. This keeps all automation within Renovate's workflow:
+
+````json
+{
+  "extends": ["config:base"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": ["\\.(cs|js|ts|py|md|yml|yaml)$"],
+      "matchStrings": [
+        "ref:https://github\\.com/(?<depName>[^/]+/[^/]+)/blob/(?<currentValue>[^/]+)/"
+      ],
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver"
+    }
+  ],
+  "postUpgradeTasks": {
+    "commands": [
+      "dotnet tool install --global Meziantou.FileReferencer",
+      "Meziantou.FileReferencer ."
+    ],
+    "fileFilters": ["**/*"],
+    "executionMode": "update"
+  }
+}
+````
+
+This configuration:
+- Installs the tool when processing updates
+- Runs it to refresh referenced file content
+- Includes all updated files in the commit
+- Only executes during dependency updates (not on initial PR creation)
+
+### Alternative: Running in CI/CD
+
+Alternatively, you can run the tool in a separate CI workflow after Renovate creates a pull request:
+
+````yaml
+name: Update File References
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  update-references:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Install Meziantou.FileReferencer
+        run: dotnet tool install --global Meziantou.FileReferencer
+      
+      - name: Update file references
+        run: Meziantou.FileReferencer .
+      
+      - name: Commit updated references
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git diff --staged --quiet || git commit -m "Update file references"
+          git push
+````
+
+Both approaches ensure that whenever Renovate updates a version tag, the actual file content is automatically refreshed to match the new version.
