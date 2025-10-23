@@ -99,7 +99,7 @@ Used in: `.cs`, `.js`, `.ts`, `.json`, `.json5`, `.less`, `.scss`
 ````
 
 ### Slash-Star Comments (`/* */`)
-Used in: `.css`, `.js`, `.ts`, `.less`, `.scss`
+Used in: `.cs`, `.css`, `.js`, `.ts`, `.less`, `.scss`
 
 ````css
 /* ref:file.txt */
