@@ -28,6 +28,7 @@ rootCommand.SetAction(async (result, cancellationToken) =>
     var recurse = result.CommandResult.GetRequiredValue(recurseOption);
     var paths = result.CommandResult.GetRequiredValue(pathsArgument);
     var eolOptionValue = result.CommandResult.GetRequiredValue(endOfLineOption);
+    var hasErrors = false;
 
     var parallelOptions = new ParallelOptions
     {
@@ -71,14 +72,32 @@ rootCommand.SetAction(async (result, cancellationToken) =>
             var sb = new StringBuilder(content.Length);
             var isUpdated = false;
             ReferenceMatch? match = null;
+            var matchEol = "";
+            var originalContent = new StringBuilder();
             foreach (var (line, eol) in content.SplitLines())
             {
                 if (match is not null)
                 {
-                    if (parser.MatchEnd(line))
+                    if (!parser.MatchEnd(line))
                     {
-                        match = null;
+                        originalContent.Append(line).Append(eol);
+                        continue;
                     }
+
+                    try
+                    {
+                        sb.Append(await ReferenceRenderer.RenderAsync(file, match, matchEol, eolOptionValue, cancellationToken));
+                        isUpdated = true;
+                    }
+                    catch (ReferenceException ex)
+                    {
+                        // Keep the existing content of the reference
+                        Console.Error.WriteLine($"Error in file {file}: cannot update reference {match.Reference}: {ex.Message}");
+                        hasErrors = true;
+                        sb.Append(originalContent);
+                    }
+
+                    match = null;
                 }
                 else
                 {
@@ -86,63 +105,19 @@ rootCommand.SetAction(async (result, cancellationToken) =>
                     if (match is not null)
                     {
                         Console.WriteLine($"Found start reference: {match.Reference} in file {file}");
-
-                        var remoteContent = await FileDownloader.DownloadFileAsync(file, match.Reference, cancellationToken);
-                        sb.Append(line).Append(eol);
-
-                        // Update end of line characters
-                        switch (match.EndOfLine ?? eolOptionValue)
-                        {
-                            case EndOfLineOption.Auto:
-                                remoteContent = remoteContent.ReplaceLineEndings(eol);
-                                break;
-                            case EndOfLineOption.Cr:
-                                remoteContent = remoteContent.ReplaceLineEndings("\r");
-                                break;
-                            case EndOfLineOption.Lf:
-                                remoteContent = remoteContent.ReplaceLineEndings("\n");
-                                break;
-                            case EndOfLineOption.CrLf:
-                                remoteContent = remoteContent.ReplaceLineEndings("\r\n");
-                                break;
-                        }
-
-                        // Trim extra new lines at the end of the file, keep the last one
-                        if (match.TrimFinalEmptyLines ?? true)
-                        {
-                            remoteContent = remoteContent.TrimEnd('\r', '\n') + eol;
-                        }
-
-                        // Match indentation (e.g. json, yaml)
-                        if (match.UpdateIndentation ?? true && !string.IsNullOrEmpty(match.Indentation))
-                        {
-                            var indentedContent = new StringBuilder();
-                            var lines = remoteContent.SplitLines();
-                            foreach (var (remoteLine, remoteEol) in lines)
-                            {
-                                if (string.IsNullOrWhiteSpace(remoteLine))
-                                {
-                                    indentedContent.Append(eol);
-                                }
-                                else
-                                {
-                                    indentedContent.Append(match.Indentation).Append(remoteLine).Append(eol);
-                                }
-                            }
-
-                            remoteContent = indentedContent.ToString();
-                        }
-
-                        sb.Append(remoteContent);
-                        isUpdated = true;
-                        continue;
+                        matchEol = eol;
+                        originalContent.Clear();
                     }
                 }
 
-                if (match is null)
-                {
-                    sb.Append(line).Append(eol);
-                }
+                sb.Append(line).Append(eol);
+            }
+
+            if (match is not null)
+            {
+                Console.Error.WriteLine($"Error in file {file}: cannot update reference {match.Reference}: the end marker is missing");
+                hasErrors = true;
+                sb.Append(originalContent);
             }
 
             if (isUpdated)
@@ -160,6 +135,8 @@ rootCommand.SetAction(async (result, cancellationToken) =>
             }
         }
     });
+
+    return hasErrors ? 1 : 0;
 });
 
 ParseResult parseResult = rootCommand.Parse(args);
