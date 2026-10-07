@@ -68,6 +68,57 @@ Available options:
   - `crlf` - Carriage Return + Line Feed (Windows)
   - `cr` - Carriage Return
   - `auto` - Match the line endings of the current file (default)
+- `trim-final-lines=false` - Keep the empty lines at the end of the referenced content
+- `lines=12-14` or `lines=12` - Only include the specified lines (inclusive, 1-based)
+- `region=Name` - Only include the content of the named region (see below)
+- `dedent=true` - Remove the leading whitespace common to all the included lines, while preserving relative indentation
+- `format=md-fenced-code-block` - Wrap the content in a Markdown fenced code block (see below)
+- `language=csharp` - Set the language of the fenced code block (default: inferred from the file extension; `none` to omit it)
+- `source-link=auto|<url>` - Add a `[source code](...)` link after the content (see below)
+
+If a reference is invalid (e.g. unknown option value, out-of-bounds line range, missing or ambiguous region, unresolvable source link), the tool reports an error, leaves the existing content of this reference unchanged, and exits with a non-zero exit code.
+
+### Markdown Code Snippets
+
+In Markdown files, you can embed code from tests or sample projects in a fenced code block. The tool generates and refreshes the code fence, so you don't need to maintain it manually:
+
+````markdown
+<!-- ref:../tests/ExampleTests.cs;region=BasicUsage;format=md-fenced-code-block;dedent=true;source-link=auto -->
+<!-- endref -->
+````
+
+After running the tool:
+
+`````markdown
+<!-- ref:../tests/ExampleTests.cs;region=BasicUsage;format=md-fenced-code-block;dedent=true;source-link=auto -->
+```csharp
+var value = 42;
+Console.WriteLine(value);
+```
+
+[source code](https://github.com/owner/repo/blob/main/tests/ExampleTests.cs#L12-L13)
+<!-- endref -->
+`````
+
+- Without `lines` or `region`, the whole file is included.
+- `lines=12-14` selects an explicit range of lines. It cannot be combined with `region`.
+- `region=BasicUsage` selects the lines between `#region BasicUsage` and the matching `#endregion`, excluding these delimiters. Nested regions are supported. The region name must be unique in the file.
+- The language is inferred from the file extension (e.g. `.cs` → `csharp`). Unknown extensions produce a code block without language. Use `language=<name>` to override it, or `language=none` to omit it.
+- The fence uses more backticks than the longest run of backticks in the content, so the content can itself contain code fences.
+- The indentation of the start marker is applied to the whole generated block, so snippets can be nested in lists.
+
+#### Source links
+
+`source-link` adds a `[source code](...)` link after the code block (separated by an empty line). There is no link when the option is omitted.
+
+- `source-link=https://...` uses the URL as-is.
+- `source-link=auto` generates a link to GitHub:
+  - For local files, the link targets the GitHub repository of the `origin` remote of the Git repository containing the referenced file, on its **default branch**. The default branch is read from `origin/HEAD` (`git remote set-head origin --auto`) or queried from the remote. Note that these links are live links: local changes that are not yet merged in the default branch may not be visible on GitHub.
+  - For remote files (`https://github.com/{owner}/{repo}/blob/...`, `https://github.com/{owner}/{repo}/raw/...`, or `https://raw.githubusercontent.com/...`), the link targets the same repository, revision, and path.
+  - When using `lines` or `region`, the link points to the selected lines (e.g. `#L12-L14`) in the original file.
+  - The tool reports an error if the link cannot be resolved (e.g. not a Git repository, no `origin` remote, or not a GitHub repository).
+
+The `format`, `lines`, `region`, `dedent`, and `source-link` options are only supported in reference markers. Files defined in `FileReferences.json` are copied as-is.
 
 ### FileReferences.json
 

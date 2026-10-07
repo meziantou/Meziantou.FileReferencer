@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Meziantou.FileReferencer;
 internal static class FileDownloader
@@ -7,25 +8,33 @@ internal static class FileDownloader
     private static readonly ConcurrentDictionary<string, Lazy<Task<string>>> _downloadTasks = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ConcurrentDictionary<string, Lazy<Task<byte[]>>> _downloadRawTasks = new(StringComparer.OrdinalIgnoreCase);
 
+    public static bool TryGetRemoteUri(string url, [NotNullWhen(true)] out Uri? uri)
+    {
+        return Uri.TryCreate(url, UriKind.Absolute, out uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+    }
+
+    public static string GetLocalPath(string filePath, string url)
+    {
+        var parent = Path.GetDirectoryName(filePath) ?? Environment.CurrentDirectory;
+        return Path.GetFullPath(Path.Combine(parent, url));
+    }
+
     public static async Task<string> DownloadFileAsync(string filePath, string url, CancellationToken cancellationToken = default)
     {
-        if (Uri.TryCreate(url, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+        if (TryGetRemoteUri(url, out var uri))
             return await _downloadTasks.GetOrAdd(uri.AbsoluteUri, url => new(() => DownloadFile(uri, cancellationToken))).Value;
 
-
-        var parent = Path.GetDirectoryName(filePath) ?? Environment.CurrentDirectory;
-        var fullPath = Path.GetFullPath(Path.Combine(parent, url));
+        var fullPath = GetLocalPath(filePath, url);
 
         return await _downloadTasks.GetOrAdd(fullPath, path => new(() => File.ReadAllTextAsync(fullPath, cancellationToken))).Value;
     }
 
     public static async Task<byte[]> DownloadFileRawAsync(string filePath, string url, CancellationToken cancellationToken = default)
     {
-        if (Uri.TryCreate(url, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+        if (TryGetRemoteUri(url, out var uri))
             return await _downloadRawTasks.GetOrAdd(uri.AbsoluteUri, url => new(() => DownloadFileRaw(uri, cancellationToken))).Value;
 
-        var parent = Path.GetDirectoryName(filePath) ?? Environment.CurrentDirectory;
-        var fullPath = Path.GetFullPath(Path.Combine(parent, url));
+        var fullPath = GetLocalPath(filePath, url);
 
         return await _downloadRawTasks.GetOrAdd(fullPath, path => new(() => File.ReadAllBytesAsync(fullPath, cancellationToken))).Value;
     }
