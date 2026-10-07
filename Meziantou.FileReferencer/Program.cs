@@ -120,9 +120,24 @@ rootCommand.SetAction(async (result, cancellationToken) =>
                 sb.Append(originalContent);
             }
 
+            var newContent = isUpdated ? sb.ToString() : content;
+            if (XmlDocReferenceUpdater.IsSupported(file))
+            {
+                var xmlDocResult = await XmlDocReferenceUpdater.UpdateAsync(file, newContent, eolOptionValue, cancellationToken);
+                if (xmlDocResult.HasErrors)
+                {
+                    hasErrors = true;
+                }
+
+                if (xmlDocResult.ReferenceCount > 0)
+                {
+                    newContent = xmlDocResult.Content;
+                    isUpdated = true;
+                }
+            }
+
             if (isUpdated)
             {
-                var newContent = sb.ToString();
                 if (newContent != content)
                 {
                     Console.WriteLine($"Updating file {file}");

@@ -71,43 +71,14 @@ internal static partial class ReferenceRenderer
     /// <exception cref="ReferenceException">The reference is invalid</exception>
     public static async Task<string> RenderAsync(string filePath, ReferenceMatch match, string markerEol, EndOfLineOption defaultEol, CancellationToken cancellationToken)
     {
-        if (match.Errors.Count > 0)
-            throw new ReferenceException(string.Join(' ', match.Errors));
-
         if (markerEol.Length == 0)
         {
             markerEol = Environment.NewLine;
         }
 
-        var content = await FileDownloader.DownloadFileAsync(filePath, match.Reference, cancellationToken);
-        var sourceLines = new List<SourceLine>();
-        foreach (var (line, eol) in content.SplitLines())
-        {
-            sourceLines.Add(new SourceLine(line, eol));
-        }
-
-        var (lines, linkRange) = SelectLines(sourceLines, match);
-        if (match.Dedent)
-        {
-            lines = Dedent(lines);
-        }
-
-        if (match.TrimFinalEmptyLines ?? true)
-        {
-            while (lines.Count > 0 && lines[^1].Text.Length == 0)
-            {
-                lines.RemoveAt(lines.Count - 1);
-            }
-        }
-
+        var (lines, linkRange) = await GetContentAsync(filePath, match, cancellationToken);
         var eolOption = match.EndOfLine ?? defaultEol;
-        var targetEol = eolOption switch
-        {
-            EndOfLineOption.Cr => "\r",
-            EndOfLineOption.Lf => "\n",
-            EndOfLineOption.CrLf => "\r\n",
-            _ => markerEol,
-        };
+        var targetEol = GetEndOfLine(eolOption, markerEol);
 
         var output = new List<SourceLine>(lines.Count + 4);
         string? fence = null;
@@ -125,8 +96,7 @@ internal static partial class ReferenceRenderer
 
         foreach (var line in lines)
         {
-            var eol = eolOption is EndOfLineOption.AsIs && line.Eol.Length > 0 ? line.Eol : targetEol;
-            output.Add(line with { Eol = eol });
+            output.Add(line with { Eol = GetLineEndOfLine(line, eolOption, targetEol) });
         }
 
         if (fence is not null)
@@ -136,10 +106,7 @@ internal static partial class ReferenceRenderer
 
         if (match.SourceLink is not null)
         {
-            var url = match.SourceLink == ReferenceMatch.SourceLinkAuto
-                ? await SourceLinkResolver.ResolveAsync(filePath, match.Reference, linkRange, cancellationToken)
-                : match.SourceLink;
-
+            var url = await GetSourceLinkAsync(filePath, match, linkRange, cancellationToken);
             output.Add(new SourceLine("", targetEol));
             output.Add(new SourceLine($"[source code]({url})", targetEol));
         }
@@ -165,6 +132,68 @@ internal static partial class ReferenceRenderer
         }
 
         return result.ToString();
+    }
+
+    /// <summary>
+    /// Gets the selected lines of the referenced file, after applying the <c>lines</c>, <c>region</c>, <c>dedent</c>, and <c>trim-final-lines</c> options.
+    /// </summary>
+    /// <returns>The selected lines, and the range of the selected lines in the original file when only part of the file is selected</returns>
+    /// <exception cref="ReferenceException">The reference is invalid</exception>
+    public static async Task<(List<SourceLine> Lines, LineRange? LinkRange)> GetContentAsync(string filePath, ReferenceMatch match, CancellationToken cancellationToken)
+    {
+        if (match.Errors.Count > 0)
+            throw new ReferenceException(string.Join(' ', match.Errors));
+
+        var content = await FileDownloader.DownloadFileAsync(filePath, match.Reference, cancellationToken);
+        var sourceLines = new List<SourceLine>();
+        foreach (var (line, eol) in content.SplitLines())
+        {
+            sourceLines.Add(new SourceLine(line, eol));
+        }
+
+        var (lines, linkRange) = SelectLines(sourceLines, match);
+        if (match.Dedent)
+        {
+            lines = Dedent(lines);
+        }
+
+        if (match.TrimFinalEmptyLines ?? true)
+        {
+            while (lines.Count > 0 && lines[^1].Text.Length == 0)
+            {
+                lines.RemoveAt(lines.Count - 1);
+            }
+        }
+
+        return (lines, linkRange);
+    }
+
+    /// <summary>Gets the end of line to use for the generated lines.</summary>
+    /// <param name="markerEol">End of line of the reference marker, used when the option is <see cref="EndOfLineOption.Auto"/> or <see cref="EndOfLineOption.AsIs"/></param>
+    public static string GetEndOfLine(EndOfLineOption eolOption, string markerEol)
+    {
+        return eolOption switch
+        {
+            EndOfLineOption.Cr => "\r",
+            EndOfLineOption.Lf => "\n",
+            EndOfLineOption.CrLf => "\r\n",
+            _ => markerEol,
+        };
+    }
+
+    /// <summary>Gets the end of line of a line of the referenced file.</summary>
+    public static string GetLineEndOfLine(SourceLine line, EndOfLineOption eolOption, string targetEol)
+    {
+        return eolOption is EndOfLineOption.AsIs && line.Eol.Length > 0 ? line.Eol : targetEol;
+    }
+
+    /// <exception cref="ReferenceException">The source link cannot be resolved</exception>
+    public static async Task<string> GetSourceLinkAsync(string filePath, ReferenceMatch match, LineRange? linkRange, CancellationToken cancellationToken)
+    {
+        var sourceLink = match.SourceLink ?? throw new InvalidOperationException("The reference does not have a source link.");
+        return sourceLink == ReferenceMatch.SourceLinkAuto
+            ? await SourceLinkResolver.ResolveAsync(filePath, match.Reference, linkRange, cancellationToken)
+            : sourceLink;
     }
 
     private static (List<SourceLine> Lines, LineRange? LinkRange) SelectLines(List<SourceLine> lines, ReferenceMatch match)
@@ -297,5 +326,5 @@ internal static partial class ReferenceRenderer
         return LanguageByExtension.TryGetValue(extension, out var language) ? language : null;
     }
 
-    private readonly record struct SourceLine(string Text, string Eol);
+    internal readonly record struct SourceLine(string Text, string Eol);
 }

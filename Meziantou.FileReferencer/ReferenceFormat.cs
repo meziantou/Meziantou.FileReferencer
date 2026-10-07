@@ -3,4 +3,5 @@ internal enum ReferenceFormat
 {
     Plain,
     MarkdownFencedCodeBlock,
+    XmlDocCode,
 }
