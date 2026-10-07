@@ -118,7 +118,80 @@ Console.WriteLine(value);
   - When using `lines` or `region`, the link points to the selected lines (e.g. `#L12-L14`) in the original file.
   - The tool reports an error if the link cannot be resolved (e.g. not a Git repository, no `origin` remote, or not a GitHub repository).
 
-The `format`, `lines`, `region`, `dedent`, and `source-link` options are only supported in reference markers. Files defined in `FileReferences.json` are copied as-is.
+The `format`, `lines`, `region`, `dedent`, and `source-link` options are only supported in reference markers and [C# XML documentation comments](#c-xml-documentation-comments). Files defined in `FileReferences.json` are copied as-is.
+
+### C# XML Documentation Comments
+
+In C# files, you can embed and refresh code from tests or sample projects in XML documentation comments (`///`). Instead of comment markers, a reference is an element that has a `source` attribute in the `urn:meziantou:file-referencer` namespace. The tool replaces the content of this element:
+
+````csharp
+/// <example>
+/// Handwritten explanation stays outside the replacement target.
+/// <code xmlns:ref="urn:meziantou:file-referencer"
+///       ref:source="../samples/Example.cs"
+///       ref:region="BasicUsage"
+///       ref:dedent="true">
+/// </code>
+/// </example>
+````
+
+After running the tool:
+
+````csharp
+/// <example>
+/// Handwritten explanation stays outside the replacement target.
+/// <code xmlns:ref="urn:meziantou:file-referencer"
+///       ref:source="../samples/Example.cs"
+///       ref:region="BasicUsage"
+///       ref:dedent="true">
+/// var items = new List&lt;int&gt; { 1, 2 };
+/// if (items.Count &gt; 0 &amp;&amp; items[0] == 1)
+/// {
+///     Console.WriteLine(items[0]);
+/// }
+/// </code>
+/// </example>
+````
+
+The namespace URI is only an identifier: it does not need to be downloaded. The C# compiler keeps these attributes in the generated documentation file, so the comments remain valid with `GenerateDocumentationFile` and warnings as errors.
+
+- **Any element can be a target.** References are detected by the namespaced `source` attribute, not by the element name: `<code>`, `<example>`, `<remarks>`, or custom elements all work.
+- **Namespaces follow the XML rules.** Attributes are matched by namespace URI and local name, not by the `ref` prefix. Any prefix bound to `urn:meziantou:file-referencer` works, and the namespace can be declared on the target element or on any ancestor element of the same comment. The prefix must be declared (the C# compiler reports CS1570 otherwise). A default namespace (`xmlns="..."`) does not apply to attributes, so unprefixed attributes are never references.
+- **The element is the replacement boundary.** No end marker is needed. The element, its attributes, and everything outside it are preserved; only its content is replaced. A self-closing element (`<code ... />`) is expanded into a start and an end tag.
+- **The content is XML-escaped text.** `<`, `>`, and `&` are escaped, so the code round-trips as text in the generated documentation. No wrapper is added: put the attributes on `<code>` to get a code block.
+- **Every generated line keeps the `///` prefix** of the line containing the start tag. Generated lines are aligned with that start tag. Use `ref:indent="false"` to not apply this indentation; the `///` prefix is preserved anyway.
+- References cannot be nested, and only `///` comments are supported (not `/** */`).
+
+Supported attributes (all in the `urn:meziantou:file-referencer` namespace):
+
+- `source` (required) - Path relative to the C# file, or http(s) URL, of the referenced file
+- `lines="12-14"`, `region="Name"`, `dedent="true"`, `trim-final-lines="false"` - Select and transform the content, with the same semantics as the [Markdown code snippets](#markdown-code-snippets)
+- `indent="false"` - Do not align the generated lines with the start tag of the element
+- `eol="lf|crlf|cr|auto|asis"` - Control line ending format
+- `format="xmldoc-code"` - Wrap the content in a `<code>` element (see below)
+- `source-link="auto|<url>"` - Add a link to the source code after the `<code>` element. Requires `format="xmldoc-code"`.
+
+Unlike comment markers, unknown attributes in the namespace and invalid values are reported as errors. Invalid references, malformed XML in a comment containing a reference, and failures to resolve the source or the selection are reported, leave the existing content of the element unchanged, and make the tool exit with a non-zero exit code. Comments that do not reference the namespace are never parsed.
+
+#### Source links
+
+A source link is documentation, not code, so it must not be generated inside `<code>`. To get both the code and a link, put the attributes on a surrounding element and use `format="xmldoc-code"`. The tool then owns the whole content of this element: a `<code>` element followed by a `<para>` containing the link. The link is resolved as for the [Markdown source links](#source-links).
+
+````csharp
+/// <example xmlns:ref="urn:meziantou:file-referencer"
+///          ref:source="../samples/Example.cs"
+///          ref:region="BasicUsage"
+///          ref:dedent="true"
+///          ref:format="xmldoc-code"
+///          ref:source-link="auto">
+/// <code>
+/// var value = 42;
+/// </code>
+/// <para><see href="https://github.com/owner/repo/blob/main/samples/Example.cs#L12">source code</see></para>
+/// </example>
+````
+
+Using `source-link` without `format="xmldoc-code"` is an error.
 
 ### FileReferences.json
 
@@ -196,6 +269,15 @@ Used in: `.cs`
 #region ref:file.txt
 #endregion
 ````
+
+### C# XML Documentation Comments (`///`)
+Used in: `.cs`
+
+````csharp
+/// <code xmlns:ref="urn:meziantou:file-referencer" ref:source="file.cs" />
+````
+
+See [C# XML Documentation Comments](#c-xml-documentation-comments).
 
 ### Mixed Format Support
 
