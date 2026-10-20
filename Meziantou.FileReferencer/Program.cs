@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.Text;
 using System.Text.Json;
 using Meziantou.FileReferencer;
+using Meziantou.Framework.Globbing;
 
 var pathsArgument = new Argument<string[]>("path")
 {
@@ -26,6 +27,10 @@ var excludeOption = new Option<string[]>("--exclude")
 {
     Description = "Skip the files and folders matching the pattern (.gitignore syntax, relative to the current directory). Can be specified multiple times",
 };
+var gitTrackedOnlyOption = new Option<bool>("--git-tracked-only")
+{
+    Description = "Only process files tracked by Git. Untracked and ignored files are skipped",
+};
 
 RootCommand rootCommand = new("Update references");
 rootCommand.Arguments.Add(pathsArgument);
@@ -33,6 +38,7 @@ rootCommand.Options.Add(recurseOption);
 rootCommand.Options.Add(endOfLineOption);
 rootCommand.Options.Add(checkOption);
 rootCommand.Options.Add(excludeOption);
+rootCommand.Options.Add(gitTrackedOnlyOption);
 rootCommand.SetAction(async (result, cancellationToken) =>
 {
     var recurse = result.CommandResult.GetRequiredValue(recurseOption);
@@ -40,15 +46,40 @@ rootCommand.SetAction(async (result, cancellationToken) =>
     var eolOptionValue = result.CommandResult.GetRequiredValue(endOfLineOption);
     var check = result.CommandResult.GetValue(checkOption);
     var exclusions = new FileExclusions(result.CommandResult.GetValue(excludeOption) ?? []);
+    var gitTrackedOnly = result.CommandResult.GetValue(gitTrackedOnlyOption);
     var hasErrors = false;
     var hasOutdatedFiles = false;
+
+    IEnumerable<string> files;
+    if (gitTrackedOnly)
+    {
+        var trackedFiles = new List<string>();
+        foreach (var path in paths)
+        {
+            try
+            {
+                trackedFiles.AddRange(await GitTrackedFiles.GetFilesAsync(path, recurse, cancellationToken));
+            }
+            catch (GitException ex)
+            {
+                Console.Error.WriteLine($"Error: cannot list the files tracked by Git in {path}: {ex.Message}");
+                hasErrors = true;
+            }
+        }
+
+        files = trackedFiles.Where(file => !exclusions.IsExcluded(file, PathItemType.File));
+    }
+    else
+    {
+        files = exclusions.GetFiles(paths, recurse);
+    }
 
     var parallelOptions = new ParallelOptions
     {
         MaxDegreeOfParallelism = Environment.ProcessorCount,
         CancellationToken = cancellationToken,
     };
-    await Parallel.ForEachAsync(exclusions.GetFiles(paths, recurse), async (file, cancellationToken) =>
+    await Parallel.ForEachAsync(files, async (file, cancellationToken) =>
     {
         if (Path.GetFileName(file) == "FileReferences.json")
         {

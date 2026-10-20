@@ -25,6 +25,16 @@ Meziantou.FileReferencer ./src
 Meziantou.FileReferencer ./src --recurse false
 ````
 
+### Only Processing Files Tracked by Git
+
+Use `--git-tracked-only` to only process the files tracked by Git (committed or staged). Untracked and ignored files, such as build outputs or `node_modules`, are skipped:
+
+````bash
+Meziantou.FileReferencer . --git-tracked-only
+````
+
+The files are listed using `git ls-files`, so `git` must be available. If a path is not in a Git repository, the tool reports an error and exits with a non-zero exit code. Files inside submodules are not processed, unless the path is inside the submodule.
+
 ### Checking References in CI
 
 Use `--check` to verify that all references are up to date without modifying any file:
@@ -51,7 +61,7 @@ Meziantou.FileReferencer . --exclude "*.dat" --exclude node_modules/
 - A pattern containing a `/` is anchored to the current directory, e.g. `tests/data/list.dat` or `/build`.
 - Excluding a folder excludes all its content. Excluded folders are not enumerated.
 - A pattern starting with `!` includes again the paths excluded by a previous pattern.
-- Exclusions also apply to the files given explicitly on the command line, e.g. `git ls-files -z | xargs -0 Meziantou.FileReferencer --check --exclude public_suffix_list.dat`.
+- Exclusions also apply to the files given explicitly on the command line and to `--git-tracked-only`, e.g. `Meziantou.FileReferencer . --check --git-tracked-only --exclude public_suffix_list.dat`.
 
 ### Adding a Reference in Your Files
 
