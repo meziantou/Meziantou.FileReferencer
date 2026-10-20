@@ -22,18 +22,24 @@ var checkOption = new Option<bool>("--check")
 {
     Description = "Check that all references are up to date without modifying files. Exit with a non-zero exit code if a file is not up to date",
 };
+var excludeOption = new Option<string[]>("--exclude")
+{
+    Description = "Skip the files and folders matching the pattern (.gitignore syntax, relative to the current directory). Can be specified multiple times",
+};
 
 RootCommand rootCommand = new("Update references");
 rootCommand.Arguments.Add(pathsArgument);
 rootCommand.Options.Add(recurseOption);
 rootCommand.Options.Add(endOfLineOption);
 rootCommand.Options.Add(checkOption);
+rootCommand.Options.Add(excludeOption);
 rootCommand.SetAction(async (result, cancellationToken) =>
 {
     var recurse = result.CommandResult.GetRequiredValue(recurseOption);
     var paths = result.CommandResult.GetRequiredValue(pathsArgument);
     var eolOptionValue = result.CommandResult.GetRequiredValue(endOfLineOption);
     var check = result.CommandResult.GetValue(checkOption);
+    var exclusions = new FileExclusions(result.CommandResult.GetValue(excludeOption) ?? []);
     var hasErrors = false;
     var hasOutdatedFiles = false;
 
@@ -42,7 +48,7 @@ rootCommand.SetAction(async (result, cancellationToken) =>
         MaxDegreeOfParallelism = Environment.ProcessorCount,
         CancellationToken = cancellationToken,
     };
-    await Parallel.ForEachAsync(GetAllFiles(paths, recurse), async (file, cancellationToken) =>
+    await Parallel.ForEachAsync(exclusions.GetFiles(paths, recurse), async (file, cancellationToken) =>
     {
         if (Path.GetFileName(file) == "FileReferences.json")
         {
@@ -56,7 +62,20 @@ rootCommand.SetAction(async (result, cancellationToken) =>
                     {
                         if (fileReference?.Ref is not null)
                         {
-                            var fileContent = await FileDownloader.DownloadFileRawAsync(file, fileReference.Ref, cancellationToken);
+                            byte[] fileContent;
+                            try
+                            {
+                                fileContent = await FileDownloader.DownloadFileRawAsync(file, fileReference.Ref, cancellationToken);
+                            }
+                            catch (ReferenceException ex)
+                            {
+                                // Keep the existing file
+                                Console.Error.WriteLine($"Error in file {file}: cannot update file {fileName} with reference {fileReference.Ref}: {ex.Message}");
+                                hasErrors = true;
+                                continue;
+                            }
+
+
                             var localFullPath = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file) ?? Environment.CurrentDirectory, fileName));
                             if (check)
                             {
@@ -181,23 +200,5 @@ rootCommand.SetAction(async (result, cancellationToken) =>
 
 ParseResult parseResult = rootCommand.Parse(args);
 return parseResult.Invoke();
-
-static IEnumerable<string> GetAllFiles(string[] paths, bool recurse)
-{
-    foreach (var path in paths)
-    {
-        if (Directory.Exists(path))
-        {
-            foreach (var subFile in Directory.EnumerateFiles(path, "*.*", recurse ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly))
-            {
-                yield return subFile;
-            }
-        }
-        else if (File.Exists(path))
-        {
-            yield return path;
-        }
-    }
-}
 
 public partial class Program;
