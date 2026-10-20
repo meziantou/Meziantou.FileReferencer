@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Globalization;
 using System.Text.RegularExpressions;
 
@@ -116,37 +115,13 @@ internal static partial class SourceLinkResolver
 
     private static async Task<string?> RunGitAsync(string workingDirectory, string[] arguments, CancellationToken cancellationToken)
     {
-        var psi = new ProcessStartInfo
-        {
-            FileName = "git",
-            WorkingDirectory = workingDirectory,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        foreach (var argument in arguments)
-        {
-            psi.ArgumentList.Add(argument);
-        }
-
-        psi.Environment["GIT_TERMINAL_PROMPT"] = "0";
-
         try
         {
-            using var process = Process.Start(psi);
-            if (process is null)
+            var result = await Git.RunAsync(workingDirectory, arguments, cancellationToken);
+            if (result.ExitCode != 0)
                 return null;
 
-            var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-            var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-            await process.WaitForExitAsync(cancellationToken);
-            var output = await outputTask;
-            await errorTask;
-            if (process.ExitCode != 0)
-                return null;
-
-            output = output.Trim();
+            var output = result.Output.Trim();
             return output.Length == 0 ? null : output;
         }
         catch (Win32Exception ex)

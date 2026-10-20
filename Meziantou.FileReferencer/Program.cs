@@ -22,27 +22,57 @@ var checkOption = new Option<bool>("--check")
 {
     Description = "Check that all references are up to date without modifying files. Exit with a non-zero exit code if a file is not up to date",
 };
+var gitTrackedOnlyOption = new Option<bool>("--git-tracked-only")
+{
+    Description = "Only process files tracked by Git. Untracked and ignored files are skipped",
+};
 
 RootCommand rootCommand = new("Update references");
 rootCommand.Arguments.Add(pathsArgument);
 rootCommand.Options.Add(recurseOption);
 rootCommand.Options.Add(endOfLineOption);
 rootCommand.Options.Add(checkOption);
+rootCommand.Options.Add(gitTrackedOnlyOption);
 rootCommand.SetAction(async (result, cancellationToken) =>
 {
     var recurse = result.CommandResult.GetRequiredValue(recurseOption);
     var paths = result.CommandResult.GetRequiredValue(pathsArgument);
     var eolOptionValue = result.CommandResult.GetRequiredValue(endOfLineOption);
     var check = result.CommandResult.GetValue(checkOption);
+    var gitTrackedOnly = result.CommandResult.GetValue(gitTrackedOnlyOption);
     var hasErrors = false;
     var hasOutdatedFiles = false;
+
+    IEnumerable<string> files;
+    if (gitTrackedOnly)
+    {
+        var trackedFiles = new List<string>();
+        foreach (var path in paths)
+        {
+            try
+            {
+                trackedFiles.AddRange(await GitTrackedFiles.GetFilesAsync(path, recurse, cancellationToken));
+            }
+            catch (GitException ex)
+            {
+                Console.Error.WriteLine($"Error: cannot list the files tracked by Git in {path}: {ex.Message}");
+                hasErrors = true;
+            }
+        }
+
+        files = trackedFiles;
+    }
+    else
+    {
+        files = GetAllFiles(paths, recurse);
+    }
 
     var parallelOptions = new ParallelOptions
     {
         MaxDegreeOfParallelism = Environment.ProcessorCount,
         CancellationToken = cancellationToken,
     };
-    await Parallel.ForEachAsync(GetAllFiles(paths, recurse), async (file, cancellationToken) =>
+    await Parallel.ForEachAsync(files, async (file, cancellationToken) =>
     {
         if (Path.GetFileName(file) == "FileReferences.json")
         {
