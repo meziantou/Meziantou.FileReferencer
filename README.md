@@ -25,6 +25,16 @@ Meziantou.FileReferencer ./src
 Meziantou.FileReferencer ./src --recurse false
 ````
 
+### Checking References in CI
+
+Use `--check` to verify that all references are up to date without modifying any file:
+
+````bash
+Meziantou.FileReferencer . --check
+````
+
+Each file that would be modified is reported on the standard error, including the files defined in `FileReferences.json` that are missing or have a different content. The tool exits with a non-zero exit code if a file is not up to date or if a reference is invalid.
+
 ### Adding a Reference in Your Files
 
 To include external file content in your code, add reference markers in comments. The tool will automatically download and insert the content between the start and end markers.

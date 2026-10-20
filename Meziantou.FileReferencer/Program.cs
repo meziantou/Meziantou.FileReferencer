@@ -18,17 +18,24 @@ var endOfLineOption = new Option<EndOfLineOption>("--end-of-line")
     Description = "Update end of line characters in the remote file. Allowed value: as-is, auto, cr, lf, crlf",
     DefaultValueFactory = _ => EndOfLineOption.Auto,
 };
+var checkOption = new Option<bool>("--check")
+{
+    Description = "Check that all references are up to date without modifying files. Exit with a non-zero exit code if a file is not up to date",
+};
 
 RootCommand rootCommand = new("Update references");
 rootCommand.Arguments.Add(pathsArgument);
 rootCommand.Options.Add(recurseOption);
 rootCommand.Options.Add(endOfLineOption);
+rootCommand.Options.Add(checkOption);
 rootCommand.SetAction(async (result, cancellationToken) =>
 {
     var recurse = result.CommandResult.GetRequiredValue(recurseOption);
     var paths = result.CommandResult.GetRequiredValue(pathsArgument);
     var eolOptionValue = result.CommandResult.GetRequiredValue(endOfLineOption);
+    var check = result.CommandResult.GetValue(checkOption);
     var hasErrors = false;
+    var hasOutdatedFiles = false;
 
     var parallelOptions = new ParallelOptions
     {
@@ -49,11 +56,21 @@ rootCommand.SetAction(async (result, cancellationToken) =>
                     {
                         if (fileReference?.Ref is not null)
                         {
-                            Console.WriteLine($"Updating file {fileName} with reference {fileReference.Ref}");
                             var fileContent = await FileDownloader.DownloadFileRawAsync(file, fileReference.Ref, cancellationToken);
-
                             var localFullPath = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file) ?? Environment.CurrentDirectory, fileName));
-                            await File.WriteAllBytesAsync(localFullPath, fileContent, CancellationToken.None);
+                            if (check)
+                            {
+                                if (!File.Exists(localFullPath) || !(await File.ReadAllBytesAsync(localFullPath, cancellationToken)).AsSpan().SequenceEqual(fileContent))
+                                {
+                                    Console.Error.WriteLine($"File {localFullPath} is not up to date with reference {fileReference.Ref}");
+                                    hasOutdatedFiles = true;
+                                }
+                            }
+                            else
+                            {
+                                Console.WriteLine($"Updating file {fileName} with reference {fileReference.Ref}");
+                                await File.WriteAllBytesAsync(localFullPath, fileContent, CancellationToken.None);
+                            }
                         }
                     }
                 }
@@ -140,8 +157,16 @@ rootCommand.SetAction(async (result, cancellationToken) =>
             {
                 if (newContent != content)
                 {
-                    Console.WriteLine($"Updating file {file}");
-                    await File.WriteAllTextAsync(file, newContent, FileUtilities.GetEncoding(file), CancellationToken.None);
+                    if (check)
+                    {
+                        Console.Error.WriteLine($"File {file} is not up to date");
+                        hasOutdatedFiles = true;
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Updating file {file}");
+                        await File.WriteAllTextAsync(file, newContent, FileUtilities.GetEncoding(file), CancellationToken.None);
+                    }
                 }
                 else
                 {
@@ -151,7 +176,7 @@ rootCommand.SetAction(async (result, cancellationToken) =>
         }
     });
 
-    return hasErrors ? 1 : 0;
+    return hasErrors || hasOutdatedFiles ? 1 : 0;
 });
 
 ParseResult parseResult = rootCommand.Parse(args);
