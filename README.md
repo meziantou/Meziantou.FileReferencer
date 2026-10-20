@@ -25,6 +25,16 @@ Meziantou.FileReferencer ./src
 Meziantou.FileReferencer ./src --recurse false
 ````
 
+### Only Processing Files Tracked by Git
+
+Use `--git-tracked-only` to only process the files tracked by Git (committed or staged). Untracked and ignored files, such as build outputs or `node_modules`, are skipped:
+
+````bash
+Meziantou.FileReferencer . --git-tracked-only
+````
+
+The files are listed using `git ls-files`, so `git` must be available. If a path is not in a Git repository, the tool reports an error and exits with a non-zero exit code. Files inside submodules are not processed, unless the path is inside the submodule.
+
 ### Checking References in CI
 
 Use `--check` to verify that all references are up to date without modifying any file:
