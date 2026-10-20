@@ -19,24 +19,45 @@ internal static class FileDownloader
         return Path.GetFullPath(Path.Combine(parent, url));
     }
 
-    public static async Task<string> DownloadFileAsync(string filePath, string url, CancellationToken cancellationToken = default)
+    /// <exception cref="ReferenceException">The file does not exist or cannot be downloaded</exception>
+    public static Task<string> DownloadFileAsync(string filePath, string url, CancellationToken cancellationToken = default)
     {
-        if (TryGetRemoteUri(url, out var uri))
-            return await _downloadTasks.GetOrAdd(uri.AbsoluteUri, url => new(() => DownloadFile(uri, cancellationToken))).Value;
-
-        var fullPath = GetLocalPath(filePath, url);
-
-        return await _downloadTasks.GetOrAdd(fullPath, path => new(() => File.ReadAllTextAsync(fullPath, cancellationToken))).Value;
+        return GetContentAsync(_downloadTasks, filePath, url, uri => DownloadFile(uri, cancellationToken), path => File.ReadAllTextAsync(path, cancellationToken));
     }
 
-    public static async Task<byte[]> DownloadFileRawAsync(string filePath, string url, CancellationToken cancellationToken = default)
+    /// <exception cref="ReferenceException">The file does not exist or cannot be downloaded</exception>
+    public static Task<byte[]> DownloadFileRawAsync(string filePath, string url, CancellationToken cancellationToken = default)
+    {
+        return GetContentAsync(_downloadRawTasks, filePath, url, uri => DownloadFileRaw(uri, cancellationToken), path => File.ReadAllBytesAsync(path, cancellationToken));
+    }
+
+    private static async Task<T> GetContentAsync<T>(ConcurrentDictionary<string, Lazy<Task<T>>> cache, string filePath, string url, Func<Uri, Task<T>> download, Func<string, Task<T>> read)
     {
         if (TryGetRemoteUri(url, out var uri))
-            return await _downloadRawTasks.GetOrAdd(uri.AbsoluteUri, url => new(() => DownloadFileRaw(uri, cancellationToken))).Value;
+        {
+            try
+            {
+                return await cache.GetOrAdd(uri.AbsoluteUri, _ => new(() => download(uri))).Value;
+            }
+            catch (HttpRequestException ex)
+            {
+                throw new ReferenceException($"Cannot download '{uri}': {ex.Message}", ex);
+            }
+        }
 
         var fullPath = GetLocalPath(filePath, url);
-
-        return await _downloadRawTasks.GetOrAdd(fullPath, path => new(() => File.ReadAllBytesAsync(fullPath, cancellationToken))).Value;
+        try
+        {
+            return await cache.GetOrAdd(fullPath, _ => new(() => read(fullPath))).Value;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            throw new ReferenceException($"The file '{fullPath}' does not exist.", ex);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new ReferenceException($"Cannot read the file '{fullPath}': {ex.Message}", ex);
+        }
     }
 
     private static async Task<string> DownloadFile(Uri url, CancellationToken cancellationToken)

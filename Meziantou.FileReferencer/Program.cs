@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.Text;
 using System.Text.Json;
 using Meziantou.FileReferencer;
+using Meziantou.Framework.Globbing;
 
 var pathsArgument = new Argument<string[]>("path")
 {
@@ -22,6 +23,10 @@ var checkOption = new Option<bool>("--check")
 {
     Description = "Check that all references are up to date without modifying files. Exit with a non-zero exit code if a file is not up to date",
 };
+var excludeOption = new Option<string[]>("--exclude")
+{
+    Description = "Skip the files and folders matching the pattern (.gitignore syntax, relative to the current directory). Can be specified multiple times",
+};
 var gitTrackedOnlyOption = new Option<bool>("--git-tracked-only")
 {
     Description = "Only process files tracked by Git. Untracked and ignored files are skipped",
@@ -32,6 +37,7 @@ rootCommand.Arguments.Add(pathsArgument);
 rootCommand.Options.Add(recurseOption);
 rootCommand.Options.Add(endOfLineOption);
 rootCommand.Options.Add(checkOption);
+rootCommand.Options.Add(excludeOption);
 rootCommand.Options.Add(gitTrackedOnlyOption);
 rootCommand.SetAction(async (result, cancellationToken) =>
 {
@@ -39,6 +45,7 @@ rootCommand.SetAction(async (result, cancellationToken) =>
     var paths = result.CommandResult.GetRequiredValue(pathsArgument);
     var eolOptionValue = result.CommandResult.GetRequiredValue(endOfLineOption);
     var check = result.CommandResult.GetValue(checkOption);
+    var exclusions = new FileExclusions(result.CommandResult.GetValue(excludeOption) ?? []);
     var gitTrackedOnly = result.CommandResult.GetValue(gitTrackedOnlyOption);
     var hasErrors = false;
     var hasOutdatedFiles = false;
@@ -60,11 +67,11 @@ rootCommand.SetAction(async (result, cancellationToken) =>
             }
         }
 
-        files = trackedFiles;
+        files = trackedFiles.Where(file => !exclusions.IsExcluded(file, PathItemType.File));
     }
     else
     {
-        files = GetAllFiles(paths, recurse);
+        files = exclusions.GetFiles(paths, recurse);
     }
 
     var parallelOptions = new ParallelOptions
@@ -86,7 +93,20 @@ rootCommand.SetAction(async (result, cancellationToken) =>
                     {
                         if (fileReference?.Ref is not null)
                         {
-                            var fileContent = await FileDownloader.DownloadFileRawAsync(file, fileReference.Ref, cancellationToken);
+                            byte[] fileContent;
+                            try
+                            {
+                                fileContent = await FileDownloader.DownloadFileRawAsync(file, fileReference.Ref, cancellationToken);
+                            }
+                            catch (ReferenceException ex)
+                            {
+                                // Keep the existing file
+                                Console.Error.WriteLine($"Error in file {file}: cannot update file {fileName} with reference {fileReference.Ref}: {ex.Message}");
+                                hasErrors = true;
+                                continue;
+                            }
+
+
                             var localFullPath = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file) ?? Environment.CurrentDirectory, fileName));
                             if (check)
                             {
@@ -211,23 +231,5 @@ rootCommand.SetAction(async (result, cancellationToken) =>
 
 ParseResult parseResult = rootCommand.Parse(args);
 return parseResult.Invoke();
-
-static IEnumerable<string> GetAllFiles(string[] paths, bool recurse)
-{
-    foreach (var path in paths)
-    {
-        if (Directory.Exists(path))
-        {
-            foreach (var subFile in Directory.EnumerateFiles(path, "*.*", recurse ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly))
-            {
-                yield return subFile;
-            }
-        }
-        else if (File.Exists(path))
-        {
-            yield return path;
-        }
-    }
-}
 
 public partial class Program;

@@ -45,6 +45,24 @@ Meziantou.FileReferencer . --check
 
 Each file that would be modified is reported on the standard error, including the files defined in `FileReferences.json` that are missing or have a different content. The tool exits with a non-zero exit code if a file is not up to date or if a reference is invalid.
 
+### Excluding Files
+
+Use `--exclude` to skip files and folders. The option can be specified multiple times. Patterns use the `.gitignore` syntax and are matched against the path relative to the current directory:
+
+````bash
+# Skip a file whose comments look like references
+Meziantou.FileReferencer . --check --exclude tests/data/public_suffix_list.dat
+
+# Skip a file name or a folder at any depth
+Meziantou.FileReferencer . --exclude "*.dat" --exclude node_modules/
+````
+
+- A pattern without a `/` (or with only a trailing `/`) matches at any depth, e.g. `*.dat` or `node_modules/`.
+- A pattern containing a `/` is anchored to the current directory, e.g. `tests/data/list.dat` or `/build`.
+- Excluding a folder excludes all its content. Excluded folders are not enumerated.
+- A pattern starting with `!` includes again the paths excluded by a previous pattern.
+- Exclusions also apply to the files given explicitly on the command line and to `--git-tracked-only`, e.g. `Meziantou.FileReferencer . --check --git-tracked-only --exclude public_suffix_list.dat`.
+
 ### Adding a Reference in Your Files
 
 To include external file content in your code, add reference markers in comments. The tool will automatically download and insert the content between the start and end markers.
@@ -96,7 +114,7 @@ Available options:
 - `language=csharp` - Set the language of the fenced code block (default: inferred from the file extension; `none` to omit it)
 - `source-link=auto|<url>` - Add a `[source code](...)` link after the content (see below)
 
-If a reference is invalid (e.g. unknown option value, out-of-bounds line range, missing or ambiguous region, unresolvable source link), the tool reports an error, leaves the existing content of this reference unchanged, and exits with a non-zero exit code.
+If a reference is invalid (e.g. missing local file, download failure, unknown option value, out-of-bounds line range, missing or ambiguous region, unresolvable source link), the tool reports an error, leaves the existing content of this reference unchanged, and exits with a non-zero exit code.
 
 ### Markdown Code Snippets
 

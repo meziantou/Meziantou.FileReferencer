@@ -45,6 +45,22 @@ public sealed class GitTrackedOnlyTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Directory_Exclude()
+    {
+        RunGit("init", "--quiet");
+        CreateFile("ref.txt", "ref");
+        var tracked = CreateFile("tracked.cs", Reference);
+        var excluded = CreateFile("data/list.dat", Reference.Replace("ref.txt", "missing-folder/missing.txt", StringComparison.Ordinal));
+        RunGit("add", ".");
+
+        Assert.Equal(1, Run(_directory.FullPath, "--git-tracked-only"));
+        Assert.Equal(0, Run(_directory.FullPath, "--git-tracked-only", "--exclude", "data/"));
+
+        Assert.Equal(Normalize(UpdatedReference), await ReadFileAsync(tracked));
+        Assert.Equal(Normalize(Reference.Replace("ref.txt", "missing-folder/missing.txt", StringComparison.Ordinal)), await ReadFileAsync(excluded));
+    }
+
+    [Fact]
     public async Task Directory_NoRecurse()
     {
         RunGit("init", "--quiet");
