@@ -1,3 +1,4 @@
+using System.Text;
 using Meziantou.Framework;
 
 namespace Meziantou.FileReferencer.Tests;
@@ -82,6 +83,37 @@ public sealed class PerformanceTests
 
         Assert.Equal(0, Run(path));
         Assert.Equal(timestamp, File.GetLastWriteTimeUtc(path));
+    }
+
+    [Fact]
+    public async Task LargeFileWithoutReferences_IsSkippedByCandidateScan()
+    {
+        await using var directory = TemporaryDirectory.Create();
+        var path = directory.CreateTextFile("large.txt", new string('x', 128 * 1024));
+        var timestamp = SetOldTimestamp(path);
+
+        Assert.False(await FileUtilities.ContainsReferenceCandidateAsync(path, includeXmlDocReferences: false, TestContext.Current.CancellationToken));
+        Assert.Equal(0, Run(path));
+        Assert.Equal(timestamp, File.GetLastWriteTimeUtc(path));
+    }
+
+    [Fact]
+    public async Task CandidateScan_DetectsMarkersAcrossBufferBoundaries()
+    {
+        await using var directory = TemporaryDirectory.Create();
+        var path = directory.CreateTextFile("large.txt", new string('x', 8190) + "ReFeReNcE:source.txt");
+
+        Assert.True(await FileUtilities.ContainsReferenceCandidateAsync(path, includeXmlDocReferences: false, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task CandidateScan_DetectsXmlDocNamespaceWithUnicodeEncoding()
+    {
+        await using var directory = TemporaryDirectory.Create();
+        var path = directory.CreateTextFile("large.cs", "");
+        await File.WriteAllTextAsync(path, new string('x', 8190) + XmlDocReferenceUpdater.NamespaceUri, Encoding.Unicode, TestContext.Current.CancellationToken);
+
+        Assert.True(await FileUtilities.ContainsReferenceCandidateAsync(path, includeXmlDocReferences: true, TestContext.Current.CancellationToken));
     }
 
     [Fact]
