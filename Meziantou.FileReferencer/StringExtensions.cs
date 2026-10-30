@@ -15,11 +15,13 @@ internal static partial class StringExtensions
     {
         private static SearchValues<char> NewLineCharacters { get; } = SearchValues.Create(['\r', '\n']);
 
-        private string _str;
+        private readonly string _str;
+        private int _offset;
 
         public LineSplitEnumerator(string str)
         {
             _str = str;
+            _offset = 0;
             Current = default;
         }
 
@@ -27,31 +29,32 @@ internal static partial class StringExtensions
 
         public bool MoveNext()
         {
-            if (_str.Length == 0)
+            if (_offset >= _str.Length)
                 return false;
 
             var str = _str;
-            var index = str.AsSpan().IndexOfAny(NewLineCharacters);
+            var index = str.AsSpan(_offset).IndexOfAny(NewLineCharacters);
             if (index == -1)
             {
-                _str = "";
-                Current = new LineSplitEntry(str, "");
+                Current = new LineSplitEntry(str[_offset..], "");
+                _offset = str.Length;
                 return true;
             }
 
+            index += _offset;
             if (index < str.Length - 1 && str[index] == '\r')
             {
                 var next = str[index + 1];
                 if (next == '\n')
                 {
-                    Current = new LineSplitEntry(str[..index], str[index..(index + 2)]);
-                    _str = str[(index + 2)..];
+                    Current = new LineSplitEntry(str[_offset..index], "\r\n");
+                    _offset = index + 2;
                     return true;
                 }
             }
 
-            Current = new LineSplitEntry(str[..index], str[index..(index + 1)]);
-            _str = str[(index + 1)..];
+            Current = new LineSplitEntry(str[_offset..index], str[index] == '\r' ? "\r" : "\n");
+            _offset = index + 1;
             return true;
         }
 

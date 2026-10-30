@@ -86,10 +86,10 @@ rootCommand.SetAction(async (result, cancellationToken) =>
             try
             {
                 await using var stream = File.OpenRead(file);
-                var content = await JsonSerializer.DeserializeAsync(stream, SourceGenerationContext.Default.FileReferences, cancellationToken: cancellationToken);
-                if (content?.References is not null)
+                var fileReferences = await JsonSerializer.DeserializeAsync(stream, SourceGenerationContext.Default.FileReferences, cancellationToken: cancellationToken);
+                if (fileReferences?.References is not null)
                 {
-                    foreach (var (fileName, fileReference) in content.References)
+                    foreach (var (fileName, fileReference) in fileReferences.References)
                     {
                         if (fileReference?.Ref is not null)
                         {
@@ -108,13 +108,14 @@ rootCommand.SetAction(async (result, cancellationToken) =>
 
 
                             var localFullPath = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file) ?? Environment.CurrentDirectory, fileName));
-                            if (check)
+                            if (File.Exists(localFullPath) && (await File.ReadAllBytesAsync(localFullPath, cancellationToken)).AsSpan().SequenceEqual(fileContent))
                             {
-                                if (!File.Exists(localFullPath) || !(await File.ReadAllBytesAsync(localFullPath, cancellationToken)).AsSpan().SequenceEqual(fileContent))
-                                {
-                                    Console.Error.WriteLine($"File {localFullPath} is not up to date with reference {fileReference.Ref}");
-                                    hasOutdatedFiles = true;
-                                }
+                                Console.WriteLine($"File {fileName} is already up to date");
+                            }
+                            else if (check)
+                            {
+                                Console.Error.WriteLine($"File {localFullPath} is not up to date with reference {fileReference.Ref}");
+                                hasOutdatedFiles = true;
                             }
                             else
                             {
@@ -132,52 +133,59 @@ rootCommand.SetAction(async (result, cancellationToken) =>
             }
         }
 
-        var fileExtension = Path.GetExtension(file);
-        if (Parser.TryGet(fileExtension, out var parser))
+        var content = File.ReadAllText(file);
+        var hasCommentReferences = content.Contains("ref:", StringComparison.OrdinalIgnoreCase) || content.Contains("reference:", StringComparison.OrdinalIgnoreCase);
+        var hasXmlDocReferences = XmlDocReferenceUpdater.IsSupported(file) && content.Contains(XmlDocReferenceUpdater.NamespaceUri, StringComparison.Ordinal);
+        if (!hasCommentReferences && !hasXmlDocReferences)
+            return;
+
+        if (Parser.TryGet(file, out var parser))
         {
-            var content = File.ReadAllText(file);
-            var sb = new StringBuilder(content.Length);
+            var sb = new StringBuilder(hasCommentReferences ? content.Length : 0);
             var isUpdated = false;
             ReferenceMatch? match = null;
             var matchEol = "";
             var originalContent = new StringBuilder();
-            foreach (var (line, eol) in content.SplitLines())
+            if (hasCommentReferences)
             {
-                if (match is not null)
+                foreach (var (line, eol) in content.SplitLines())
                 {
-                    if (!parser.MatchEnd(line))
-                    {
-                        originalContent.Append(line).Append(eol);
-                        continue;
-                    }
-
-                    try
-                    {
-                        sb.Append(await ReferenceRenderer.RenderAsync(file, match, matchEol, eolOptionValue, cancellationToken));
-                        isUpdated = true;
-                    }
-                    catch (ReferenceException ex)
-                    {
-                        // Keep the existing content of the reference
-                        Console.Error.WriteLine($"Error in file {file}: cannot update reference {match.Reference}: {ex.Message}");
-                        hasErrors = true;
-                        sb.Append(originalContent);
-                    }
-
-                    match = null;
-                }
-                else
-                {
-                    match = parser.MatchStart(line);
                     if (match is not null)
                     {
-                        Console.WriteLine($"Found start reference: {match.Reference} in file {file}");
-                        matchEol = eol;
-                        originalContent.Clear();
-                    }
-                }
+                        if (!parser.MatchEnd(line))
+                        {
+                            originalContent.Append(line).Append(eol);
+                            continue;
+                        }
 
-                sb.Append(line).Append(eol);
+                        try
+                        {
+                            sb.Append(await ReferenceRenderer.RenderAsync(file, match, matchEol, eolOptionValue, cancellationToken));
+                            isUpdated = true;
+                        }
+                        catch (ReferenceException ex)
+                        {
+                            // Keep the existing content of the reference
+                            Console.Error.WriteLine($"Error in file {file}: cannot update reference {match.Reference}: {ex.Message}");
+                            hasErrors = true;
+                            sb.Append(originalContent);
+                        }
+
+                        match = null;
+                    }
+                    else
+                    {
+                        match = parser.MatchStart(line);
+                        if (match is not null)
+                        {
+                            Console.WriteLine($"Found start reference: {match.Reference} in file {file}");
+                            matchEol = eol;
+                            originalContent.Clear();
+                        }
+                    }
+
+                    sb.Append(line).Append(eol);
+                }
             }
 
             if (match is not null)
