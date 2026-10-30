@@ -79,7 +79,7 @@ rootCommand.SetAction(async (result, cancellationToken) =>
         MaxDegreeOfParallelism = Environment.ProcessorCount,
         CancellationToken = cancellationToken,
     };
-    await Parallel.ForEachAsync(files, async (file, cancellationToken) =>
+    await Parallel.ForEachAsync(files, parallelOptions, async (file, cancellationToken) =>
     {
         if (Path.GetFileName(file) == "FileReferences.json")
         {
@@ -131,6 +131,13 @@ rootCommand.SetAction(async (result, cancellationToken) =>
             catch
             {
             }
+        }
+
+        const long candidateScanThreshold = 64 * 1024;
+        if (new FileInfo(file).Length >= candidateScanThreshold &&
+            !await FileUtilities.ContainsReferenceCandidateAsync(file, XmlDocReferenceUpdater.IsSupported(file), cancellationToken))
+        {
+            return;
         }
 
         var content = File.ReadAllText(file);

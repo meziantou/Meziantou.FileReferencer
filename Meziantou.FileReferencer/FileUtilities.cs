@@ -3,6 +3,36 @@ using System.Text;
 namespace Meziantou.FileReferencer;
 internal static class FileUtilities
 {
+    private const int CandidateScanBufferSize = 8192;
+
+    public static async Task<bool> ContainsReferenceCandidateAsync(string path, bool includeXmlDocReferences, CancellationToken cancellationToken)
+    {
+        const string referenceMarker = "reference:";
+        const string shortReferenceMarker = "ref:";
+        var maxMarkerLength = includeXmlDocReferences ? XmlDocReferenceUpdater.NamespaceUri.Length : referenceMarker.Length;
+        var buffer = new char[CandidateScanBufferSize + maxMarkerLength - 1];
+        var carryLength = 0;
+
+        using var reader = new StreamReader(path);
+        while (true)
+        {
+            var read = await reader.ReadAsync(buffer.AsMemory(carryLength, CandidateScanBufferSize), cancellationToken);
+            if (read == 0)
+                return false;
+
+            var content = buffer.AsSpan(0, carryLength + read);
+            if (content.Contains(shortReferenceMarker, StringComparison.OrdinalIgnoreCase) ||
+                content.Contains(referenceMarker, StringComparison.OrdinalIgnoreCase) ||
+                (includeXmlDocReferences && content.Contains(XmlDocReferenceUpdater.NamespaceUri, StringComparison.Ordinal)))
+            {
+                return true;
+            }
+
+            carryLength = Math.Min(maxMarkerLength - 1, content.Length);
+            content[^carryLength..].CopyTo(buffer);
+        }
+    }
+
     public static Encoding GetEncoding(string path)
     {
         var fs = File.OpenRead(path);
