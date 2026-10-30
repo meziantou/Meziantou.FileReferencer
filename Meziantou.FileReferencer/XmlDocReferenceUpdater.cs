@@ -44,6 +44,9 @@ internal static partial class XmlDocReferenceUpdater
     /// <param name="defaultEol">End of line option to use when the reference does not specify one</param>
     public static async Task<UpdateResult> UpdateAsync(string filePath, string content, EndOfLineOption defaultEol, CancellationToken cancellationToken)
     {
+        if (!content.Contains(NamespaceUri, StringComparison.Ordinal))
+            return new UpdateResult(content, 0, false);
+
         var result = new StringBuilder(content.Length);
         var block = new List<DocLine>();
         var blockLineNumber = 0;

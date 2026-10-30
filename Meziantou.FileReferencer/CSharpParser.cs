@@ -28,6 +28,14 @@ internal partial class CSharpParser : Parser
             return ReferenceMatch.Create(match);
         }
 
+        match = Regexes.SlashStarRegexStart.Match(line);
+        if (match.Success)
+        {
+            regionCount = 0;
+            _endRegex = Regexes.SlashStarRegexEnd;
+            return ReferenceMatch.Create(match);
+        }
+
         return null;
     }
 

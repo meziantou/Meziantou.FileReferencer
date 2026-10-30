@@ -25,6 +25,8 @@ Meziantou.FileReferencer ./src
 Meziantou.FileReferencer ./src --recurse false
 ````
 
+Files without reference markers are skipped after reading, and files whose generated content is unchanged are not rewritten (including files defined in `FileReferences.json`). For large repositories, use `--git-tracked-only` and `--exclude` to avoid scanning build outputs and other irrelevant files.
+
 ### Only Processing Files Tracked by Git
 
 Use `--git-tracked-only` to only process the files tracked by Git (committed or staged). Untracked and ignored files, such as build outputs or `node_modules`, are skipped:

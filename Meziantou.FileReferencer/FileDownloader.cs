@@ -7,6 +7,7 @@ internal static class FileDownloader
 {
     private static readonly ConcurrentDictionary<string, Lazy<Task<string>>> _downloadTasks = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ConcurrentDictionary<string, Lazy<Task<byte[]>>> _downloadRawTasks = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Lazy<Task<string?>> _gitHubToken = new(GetGitHubTokenAsync);
 
     public static bool TryGetRemoteUri(string url, [NotNullWhen(true)] out Uri? uri)
     {
@@ -93,37 +94,45 @@ internal static class FileDownloader
             }
             else
             {
-                try
+                var gitHubToken = await _gitHubToken.Value.WaitAsync(cancellationToken);
+                if (!string.IsNullOrEmpty(gitHubToken))
                 {
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = "gh",
-                        Arguments = "auth token",
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                    };
-                    using var process = Process.Start(psi);
-                    if (process is not null)
-                    {
-                        await process.WaitForExitAsync(cancellationToken);
-                        if (process.ExitCode == 0)
-                        {
-                            var tokenOutput = await process.StandardOutput.ReadToEndAsync();
-                            if (!string.IsNullOrEmpty(tokenOutput))
-                            {
-                                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokenOutput.Trim());
-                            }
-                        }
-                    }
-                }
-                catch
-                {
+                    request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", gitHubToken);
                 }
             }
         }
 
         return request;
+    }
+
+    private static async Task<string?> GetGitHubTokenAsync()
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "gh",
+            Arguments = "auth token",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        try
+        {
+            using var process = Process.Start(psi);
+            if (process is null)
+                return null;
+
+            var output = process.StandardOutput.ReadToEndAsync();
+            var error = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            var token = await output;
+            await error;
+            return process.ExitCode == 0 ? token.Trim() : null;
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            // Public GitHub files can be downloaded without gh being installed.
+            return null;
+        }
     }
 }

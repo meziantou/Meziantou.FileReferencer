@@ -13,10 +13,10 @@ internal abstract class Parser
     private static readonly Parser SemiColonParser = new RegexParser(Regexes.SemiColonRegexStart, Regexes.SemiColonRegexEnd);
     private static readonly Parser SharpParser = new RegexParser(Regexes.SharpRegexStart, Regexes.SharpRegexEnd);
     private static readonly Parser XmlParser = new RegexParser(Regexes.HtmlCommentRegexStart, Regexes.HtmlCommentRegexEnd);
-    private static readonly Parser CStyleCommentParser = new MultiParser(endParserMatchStartParser: false, [DoubleSlashParser, SlashStarParser]);
-    private static readonly Parser GenericParser = new MultiParser(endParserMatchStartParser: true,
+    private static Parser CreateCStyleCommentParser() => new MultiParser(endParserMatchStartParser: false, [DoubleSlashParser, SlashStarParser]);
+    private static Parser CreateGenericParser() => new MultiParser(endParserMatchStartParser: true,
     [
-        CStyleCommentParser,
+        CreateCStyleCommentParser(),
         SharpParser,
         XmlParser,
     ]);
@@ -24,12 +24,6 @@ internal abstract class Parser
 
     private static Dictionary<string, Func<Parser>> CreateParsers()
     {        
-        var genericParser = new MultiParser(endParserMatchStartParser: true,
-        [
-            CStyleCommentParser,
-            SharpParser,
-            XmlParser,
-        ]);
         var parserByExtension = new Dictionary<string, Func<Parser>>(StringComparer.OrdinalIgnoreCase)
         {
             [".editorconfig"] = () => SharpParser,
@@ -40,13 +34,13 @@ internal abstract class Parser
             [".ini"] = () => SemiColonParser,
             [".json"] = () => DoubleSlashParser,
             [".json5"] = () => DoubleSlashParser,
-            [".js"] = () => CStyleCommentParser,
-            [".less"] = () => CStyleCommentParser,
+            [".js"] = CreateCStyleCommentParser,
+            [".less"] = CreateCStyleCommentParser,
             [".md"] = () => XmlParser,
-            [".scss"] = () => CStyleCommentParser,
+            [".scss"] = CreateCStyleCommentParser,
             [".sh"] = () => SharpParser,
             [".sql"] = () => SqlParser,
-            [".ts"] = () => CStyleCommentParser,
+            [".ts"] = CreateCStyleCommentParser,
             [".xml"] = () => XmlParser,
             [".yaml"] = () => SharpParser,
             [".yml"] = () => SharpParser,
@@ -70,7 +64,7 @@ internal abstract class Parser
             return true;
         }
 
-        parser = GenericParser;
+        parser = CreateGenericParser();
         return true;
     }
 
